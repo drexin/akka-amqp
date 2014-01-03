@@ -31,6 +31,8 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class Subscribe(queue: String) extends Command
 
+  case class Ack(deliveryTag: Long, multiple: Boolean = false) extends Command
+
   // Responses
   trait Response
 
@@ -116,6 +118,9 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
 
     case Subscribe(queue) =>
       channel.basicConsume(queue, new ForwardingConsumer(sender))
+
+    case Ack(deliveryTag, multiple) =>
+      channel.basicAck(deliveryTag, multiple)
   }
 
   // The rabbitmq client expects null when no properties are set... oO

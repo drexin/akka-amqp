@@ -21,12 +21,17 @@ class Publisher extends Actor {
     amqp ! Connect("amqp://guest:guest@127.0.0.1:5672")
   }
 
-  def receive: Actor.Receive = {
+  def receive: Receive = {
     case Connected(_) =>
       connection = sender
       connection ! DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = true)
 
     case ExchangeDeclared(_) =>
+      context.become(publishing)
+  }
+
+  def publishing: Receive = {
+    case "pub" =>
       for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "test", body = s"test$i".getBytes(Charset.forName("utf-8")))
   }
 }
@@ -44,15 +49,18 @@ class Subscriber(receiver: ActorRef) extends Actor {
   def receive: Actor.Receive = {
     case Connected(_) =>
       connection = sender
-      connection ! DeclareQueue(name = "test-queue")
+      connection ! DeclareQueue(name = "test-queue", autoDelete = true)
 
     case QueueDeclared(_) =>
       connection ! BindQueue(queue = "test-queue", exchange = "test-exchange", routingKey = "#")
 
     case QueueBound(_,_,_) =>
       connection ! Subscribe("test-queue")
+      receiver ! "ready"
 
-    case Delivery(_,_,_,body) => receiver ! new String(body, Charset.forName("utf-8"))
+    case Delivery(_,envelope,_,body) =>
+      sender ! Ack(envelope.getDeliveryTag)
+      receiver ! new String(body, Charset.forName("utf-8"))
   }
 }
 
@@ -64,7 +72,11 @@ class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout 
     "receive all published messages" in {
       val probe = TestProbe()
       system.actorOf(Props(classOf[Subscriber], probe.ref))
-      system.actorOf(Props(classOf[Publisher]))
+      val publisher = system.actorOf(Props(classOf[Publisher]))
+
+      probe.expectMsg("ready")
+
+      publisher ! "pub"
 
       probe.expectMsgAllOf((0 until 10).map(i => s"test$i"): _*)
     }
