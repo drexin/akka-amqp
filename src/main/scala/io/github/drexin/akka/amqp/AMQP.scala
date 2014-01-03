@@ -100,16 +100,16 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
 
   def receive: Actor.Receive = {
     case DeclareExchange(name, tpe, durable, autoDelete, internal, arguments) =>
-      channel.exchangeDeclare(name, tpe, durable, autoDelete, internal, args(arguments))
-      commander ! ExchangeDeclared(name)
+      channel.exchangeDeclare(name, tpe, durable, autoDelete, internal, arguments.asJava)
+      sender ! ExchangeDeclared(name)
 
     case DeclareQueue(name, durable, exclusive, qutoDelete, arguments) =>
       channel.queueDeclare(name, durable, exclusive, qutoDelete, args(arguments))
-      commander ! QueueDeclared(name)
+      sender ! QueueDeclared(name)
 
     case BindQueue(queue, exchange, routingKey, arguments) =>
       channel.queueBind(queue, exchange, routingKey, args(arguments))
-      commander ! QueueBound(queue, exchange, routingKey)
+      sender ! QueueBound(queue, exchange, routingKey)
 
     case Publish(msg, queue, body, mandatory, immediate, props) =>
       channel.basicPublish(msg, queue, mandatory, immediate, props.orNull, body)
