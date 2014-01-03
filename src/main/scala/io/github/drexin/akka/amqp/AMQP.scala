@@ -7,7 +7,7 @@ import com.rabbitmq.client.{AMQP => Rabbit, _}
 import java.util.concurrent.ExecutorService
 import java.net.InetAddress
 import java.nio.charset.Charset
-import akka.actor.SupervisorStrategy.Escalate
+import akka.actor.SupervisorStrategy.{Restart, Escalate}
 import akka.actor.OneForOneStrategy
 import com.rabbitmq.client
 
@@ -63,9 +63,7 @@ class AMQPManager(executorOpt: Option[ExecutorService]) extends Actor with Actor
 
 
   override def supervisorStrategy: SupervisorStrategy = OneForOneStrategy() {
-    case e: Exception =>
-      log.error("w00t", e)
-      Escalate
+    case e: java.io.IOException => Restart
   }
 
   def receive: Actor.Receive = {
@@ -106,11 +104,11 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
       sender ! ExchangeDeclared(name)
 
     case DeclareQueue(name, durable, exclusive, qutoDelete, arguments) =>
-      channel.queueDeclare(name, durable, exclusive, qutoDelete, args(arguments))
+      channel.queueDeclare(name, durable, exclusive, qutoDelete, arguments.asJava)
       sender ! QueueDeclared(name)
 
     case BindQueue(queue, exchange, routingKey, arguments) =>
-      channel.queueBind(queue, exchange, routingKey, args(arguments))
+      channel.queueBind(queue, exchange, routingKey, arguments.asJava)
       sender ! QueueBound(queue, exchange, routingKey)
 
     case Publish(msg, queue, body, mandatory, immediate, props) =>
@@ -121,15 +119,6 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
 
     case Ack(deliveryTag, multiple) =>
       channel.basicAck(deliveryTag, multiple)
-  }
-
-  // The rabbitmq client expects null when no properties are set... oO
-  private def args(arguments: Map[String, AnyRef]): java.util.Map[String, AnyRef] = {
-    if (arguments.isEmpty) {
-      null
-    } else {
-      arguments.asJava
-    }
   }
 
   class ForwardingConsumer(consumer: ActorRef) extends Consumer {
