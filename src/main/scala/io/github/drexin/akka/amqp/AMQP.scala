@@ -36,7 +36,7 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
   // Responses
   trait Response
 
-  case class Connected(address: InetAddress) extends Response
+  case class Connected(address: InetAddress, connection: ActorRef) extends Response
 
   case class QueueDeclared(name: String) extends Response
 
@@ -62,7 +62,7 @@ class AMQPManager(executorOpt: Option[ExecutorService]) extends Actor with Actor
   import AMQP._
 
 
-  override def supervisorStrategy: SupervisorStrategy = OneForOneStrategy() {
+  override def supervisorStrategy: SupervisorStrategy = OneForOneStrategy(maxNrOfRetries = 10) {
     case e: java.io.IOException => Restart
   }
 
@@ -91,7 +91,7 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
 
     channel = connection.createChannel()
 
-    commander ! Connected(connection.getAddress)
+    commander ! Connected(connection.getAddress, self)
   }
 
   override def postStop(): Unit = {

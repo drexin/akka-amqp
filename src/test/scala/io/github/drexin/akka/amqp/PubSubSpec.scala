@@ -22,8 +22,8 @@ class Publisher extends Actor {
   }
 
   def receive: Receive = {
-    case Connected(_) =>
-      connection = sender
+    case Connected(_, _connection) =>
+      connection = _connection
       connection ! DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = true)
 
     case ExchangeDeclared(_) =>
@@ -47,8 +47,8 @@ class Subscriber(receiver: ActorRef) extends Actor {
   }
 
   def receive: Actor.Receive = {
-    case Connected(_) =>
-      connection = sender
+    case Connected(_, _connection) =>
+      connection = _connection
       connection ! DeclareQueue(name = "test-queue", autoDelete = true)
 
     case QueueDeclared(_) =>
@@ -65,8 +65,6 @@ class Subscriber(receiver: ActorRef) extends Actor {
 }
 
 class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout with WordSpecLike with Matchers with BeforeAndAfterAll {
-
-
 
   "A PubSub system" should {
     "receive all published messages" in {
