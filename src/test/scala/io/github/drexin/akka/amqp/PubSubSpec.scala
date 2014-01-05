@@ -1,3 +1,7 @@
+/**
+ *  Copyright (C) 2013-2014 Dario Rexin
+ */
+
 package io.github.drexin.akka.amqp
 
 import akka.testkit.{TestProbe, DefaultTimeout, TestKit}
