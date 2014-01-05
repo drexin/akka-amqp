@@ -9,6 +9,8 @@ import akka.pattern.ask
 import scala.concurrent.duration._
 import com.rabbitmq.client.ConnectionFactory
 import java.nio.charset.Charset
+import java.io.IOException
+import com.rabbitmq.client.Channel
 
 class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout with WordSpecLike with Matchers with BeforeAndAfterAll {
   import AMQP._
@@ -17,16 +19,17 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
   val connection = Await.result((amqp ? Connect("amqp://guest:guest@localhost:5672")).mapTo[Connected], 5.seconds).connection
 
   val rawConnection = new ConnectionFactory().newConnection()
-  val rawChannel = rawConnection.createChannel()
 
   "A connection" should {
     "declare an exchange and a queue on the server" in {
-      Await.ready(connection ? DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = true), 5.seconds)
+      withChannel { channel =>
+        Await.ready(connection ? DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = false), 5.seconds)
 
-      Await.ready(connection ? DeclareQueue(name = "test-queue", autoDelete = true), 5.seconds)
+        Await.ready(connection ? DeclareQueue(name = "test-queue", autoDelete = false), 5.seconds)
 
-      noException should be thrownBy {
-        rawChannel.queueBind("test-queue", "test-exchange", "#")
+        noException should be thrownBy {
+          channel.queueBind("test-queue", "test-exchange", "#")
+        }
       }
     }
 
@@ -39,7 +42,44 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
 
       new String(res.body, Charset.forName("utf-8")) should equal("foo")
     }
+
+    "delete a queue" in {
+      withChannel { channel =>
+
+        Await.ready(connection ? DeleteQueue("test-queue"), 5.seconds)
+
+        an [IOException] should be thrownBy {
+          channel.basicGet("test-queue", true)
+        }
+      }
+    }
+
+    "delete an exchange" in {
+      withChannel { channel =>
+
+        Await.ready(connection ? DeleteExchange("test-exchange"), 5.seconds)
+
+        an [IOException] should be thrownBy {
+          channel.queueBind("test-queue", "test-exchange", "#")
+        }
+      }
+    }
   }
 
-  override protected def afterAll(): Unit = system.shutdown()
+  override protected def afterAll(): Unit = {
+    system.shutdown()
+    rawConnection.close()
+  }
+
+  private def withChannel[A](f: Channel => A) {
+    val channel = rawConnection.createChannel
+    try {
+      f(channel)
+    } finally {
+      // if the channel si already closed, calling close again
+      // seems to close the connection... oO
+      if (channel.isOpen)
+        channel.close()
+    }
+  }
 }

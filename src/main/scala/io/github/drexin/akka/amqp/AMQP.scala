@@ -25,6 +25,10 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class DeclareQueue(name: String, durable: Boolean = true, exclusive: Boolean = false, autoDelete: Boolean = false, arguments: Map[String, AnyRef] = Map()) extends Command
 
+  case class DeleteExchange(name: String) extends Command
+
+  case class DeleteQueue(name: String) extends Command
+
   case class BindQueue(queue: String, exchange: String, routingKey: String, arguments: Map[String, AnyRef] = Map()) extends Command
 
   case class Publish(exchange: String, routingKey: String, body: Array[Byte], mandatory: Boolean = false, immediate: Boolean = false, props: Option[Rabbit.BasicProperties] = None) extends Command
@@ -38,7 +42,11 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class Connected(address: InetAddress, connection: ActorRef) extends Response
 
+  case class ExchangeDeleted(name: String) extends Response
+
   case class QueueDeclared(name: String) extends Response
+
+  case class QueueDeleted(name: String) extends Response
 
   case class ExchangeDeclared(name: String) extends Response
 
@@ -106,6 +114,14 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
     case DeclareQueue(name, durable, exclusive, qutoDelete, arguments) =>
       channel.queueDeclare(name, durable, exclusive, qutoDelete, arguments.asJava)
       sender ! QueueDeclared(name)
+
+    case DeleteExchange(name) =>
+      channel.exchangeDelete(name)
+      sender ! ExchangeDeleted(name)
+
+    case DeleteQueue(name) =>
+      channel.queueDelete(name)
+      sender ! QueueDeleted(name)
 
     case BindQueue(queue, exchange, routingKey, arguments) =>
       channel.queueBind(queue, exchange, routingKey, arguments.asJava)
