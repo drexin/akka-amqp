@@ -4,8 +4,8 @@
 
 package io.github.drexin.akka.amqp
 
-import akka.testkit.{DefaultTimeout, TestKit}
-import akka.actor.ActorSystem
+import akka.testkit.{TestProbe, DefaultTimeout, TestKit}
+import akka.actor.{PoisonPill, ActorSystem}
 import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
 import akka.io.IO
 import scala.concurrent.Await
@@ -20,7 +20,7 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
   import AMQP._
 
   val amqp = IO(AMQP)
-  val connection = Await.result((amqp ? Connect("amqp://guest:guest@localhost:5672")).mapTo[Connected], 5.seconds).connection
+  var connection = createConnection()
 
   val rawConnection = new ConnectionFactory().newConnection()
 
@@ -43,6 +43,8 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
       connection ! Publish("test-exchange", "test", "foo".getBytes)
 
       val res = Await.result((connection ? Subscribe("test-queue")).mapTo[Delivery], 5.seconds)
+
+      connection ! Ack(res.envelope.getDeliveryTag)
 
       new String(res.body, Charset.forName("utf-8")) should equal("foo")
     }
@@ -68,6 +70,36 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
         }
       }
     }
+
+    "auto ack messages" in {
+      withChannel { channel =>
+        try {
+          Await.ready(connection ? DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = true), 5.seconds)
+
+          Await.ready(connection ? DeclareQueue(name = "test-queue", autoDelete = false), 5.seconds)
+
+          Await.ready(connection ? BindQueue("test-queue", "test-exchange", "#"), 5.seconds)
+
+          connection ! Publish("test-exchange", "test", "foo".getBytes)
+
+          val res = Await.result((connection ? Subscribe(queue = "test-queue", autoAck = true)).mapTo[Delivery], 5.seconds)
+
+          new String(res.body, Charset.forName("utf-8")) should equal("foo")
+
+          val probe = TestProbe()
+
+          probe.watch(connection)
+
+          system.stop(connection)
+
+          probe.expectTerminated(connection, 5.seconds)
+
+          channel.basicGet("test-queue", false) should be(null)
+        } finally {
+          channel.queueDelete("test-queue")
+        }
+      }
+    }
   }
 
   override protected def afterAll(): Unit = {
@@ -85,5 +117,9 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
       if (channel.isOpen)
         channel.close()
     }
+  }
+
+  private def createConnection() = {
+    Await.result((amqp ? Connect("amqp://guest:guest@localhost:5672")).mapTo[Connected], 5.seconds).connection
   }
 }

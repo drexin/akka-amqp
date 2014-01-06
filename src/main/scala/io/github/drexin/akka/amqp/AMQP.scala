@@ -37,7 +37,7 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class Publish(exchange: String, routingKey: String, body: Array[Byte], mandatory: Boolean = false, immediate: Boolean = false, props: Option[Rabbit.BasicProperties] = None) extends Command
 
-  case class Subscribe(queue: String) extends Command
+  case class Subscribe(queue: String, autoAck: Boolean = false) extends Command
 
   case class Ack(deliveryTag: Long, multiple: Boolean = false) extends Command
 
@@ -134,8 +134,8 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
     case Publish(msg, queue, body, mandatory, immediate, props) =>
       channel.basicPublish(msg, queue, mandatory, immediate, props.orNull, body)
 
-    case Subscribe(queue) =>
-      channel.basicConsume(queue, new ForwardingConsumer(sender))
+    case Subscribe(queue, autoAck) =>
+      channel.basicConsume(queue, autoAck, new ForwardingConsumer(sender))
 
     case Ack(deliveryTag, multiple) =>
       channel.basicAck(deliveryTag, multiple)
