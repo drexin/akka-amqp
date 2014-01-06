@@ -35,6 +35,8 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class BindQueue(queue: String, exchange: String, routingKey: String, arguments: Map[String, AnyRef] = Map()) extends Command
 
+  case class UnbindQueue(queue: String, exchange: String, routingKey: String) extends Command
+
   case class Publish(exchange: String, routingKey: String, body: Array[Byte], mandatory: Boolean = false, immediate: Boolean = false, props: Option[Rabbit.BasicProperties] = None) extends Command
 
   case class Subscribe(queue: String, autoAck: Boolean = false) extends Command
@@ -55,6 +57,8 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
   case class ExchangeDeclared(name: String) extends Response
 
   case class QueueBound(queue: String, exchange: String, routingKey: String) extends Response
+
+  case class QueueUnbound(queue: String, exchange: String, routingKey: String) extends Response
 
   //
   case class Delivery(consumerTag: String, envelope: Envelope, properties: client.AMQP.BasicProperties, body: Array[Byte])
@@ -130,6 +134,10 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
     case BindQueue(queue, exchange, routingKey, arguments) =>
       channel.queueBind(queue, exchange, routingKey, arguments.asJava)
       sender ! QueueBound(queue, exchange, routingKey)
+
+    case UnbindQueue(queue, exchange, routingKey) =>
+      channel.queueUnbind(queue, exchange, routingKey)
+      sender ! QueueUnbound(queue, exchange, routingKey)
 
     case Publish(msg, queue, body, mandatory, immediate, props) =>
       channel.basicPublish(msg, queue, mandatory, immediate, props.orNull, body)

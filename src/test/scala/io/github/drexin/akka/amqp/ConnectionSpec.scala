@@ -5,8 +5,8 @@
 package io.github.drexin.akka.amqp
 
 import akka.testkit.{TestProbe, DefaultTimeout, TestKit}
-import akka.actor.{PoisonPill, ActorSystem}
-import org.scalatest.{BeforeAndAfterAll, Matchers, WordSpecLike}
+import akka.actor.ActorSystem
+import org.scalatest._
 import akka.io.IO
 import scala.concurrent.Await
 import akka.pattern.ask
@@ -15,8 +15,9 @@ import com.rabbitmq.client.ConnectionFactory
 import java.nio.charset.Charset
 import java.io.IOException
 import com.rabbitmq.client.Channel
+import java.util.concurrent.TimeoutException
 
-class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout with WordSpecLike with Matchers with BeforeAndAfterAll {
+class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout with WordSpecLike with Matchers with BeforeAndAfterAll with BeforeAndAfterEach {
   import AMQP._
 
   val amqp = IO(AMQP)
@@ -100,10 +101,49 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
         }
       }
     }
+
+    "unbind queue" in {
+      try {
+        Await.ready(connection ? DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = false), 5.seconds)
+
+        Await.ready(connection ? DeclareQueue(name = "test-queue", autoDelete = false), 5.seconds)
+
+        Await.ready(connection ? BindQueue("test-queue", "test-exchange", "#"), 5.seconds)
+
+        Await.ready(connection ? UnbindQueue("test-queue", "test-exchange", "#"), 5.seconds)
+
+        connection ! Publish("test-exchange", "test", "foo".getBytes)
+
+        an [TimeoutException] should be thrownBy {
+          Await.result((connection ? Subscribe("test-queue")).mapTo[Delivery], 100.millis)
+        }
+      } finally {
+        withChannel { channel =>
+          channel.exchangeDelete("test-exchange")
+          channel.queueDelete("test-queue")
+        }
+      }
+    }
+  }
+
+  override protected def beforeEach(): Unit = {
+    // make sure that a connection is always available before running a test
+    try {
+      val probe = TestProbe()
+
+      probe.watch(connection)
+
+      probe.expectTerminated(connection, 0.millis)
+
+      connection = createConnection()
+    } catch {
+      case _: AssertionError =>
+    }
   }
 
   override protected def afterAll(): Unit = {
     system.shutdown()
+    system.awaitTermination()
     rawConnection.close()
   }
 
@@ -112,7 +152,7 @@ class ConnectionSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTime
     try {
       f(channel)
     } finally {
-      // if the channel si already closed, calling close again
+      // if the channel is already closed, calling close again
       // seems to close the connection... oO
       if (channel.isOpen)
         channel.close()
