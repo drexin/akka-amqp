@@ -81,7 +81,6 @@ class Subscriber extends Actor {
     case QueueBound(_,_,_) =>
       // subscribe this actor to messages from 'test-queue'
       connection ! Subscribe("test-queue")
-      receiver ! "ready"
       context.become(subscribed)
   }
   
