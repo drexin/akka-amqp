@@ -14,6 +14,7 @@ import io.github.drexin.akka.amqp.AMQP.DeclareExchange
 import io.github.drexin.akka.amqp.AMQP.ExchangeDeclared
 import java.nio.charset.Charset
 import org.scalatest.{BeforeAndAfterAll, WordSpecLike, Matchers}
+import scala.concurrent.duration._
 
 class Publisher extends Actor {
   import context.system
@@ -36,11 +37,12 @@ class Publisher extends Actor {
 
   def publishing: Receive = {
     case "pub" =>
-      for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "test", body = s"test$i".getBytes(Charset.forName("utf-8")))
+      for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = s"test$i".getBytes(Charset.forName("utf-8")))
+      for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = s"nack$i".getBytes(Charset.forName("utf-8")))
   }
 }
 
-class Subscriber(receiver: ActorRef) extends Actor {
+class Subscriber(receiver: ActorRef, prefix: String) extends Actor {
   import context.system
 
   val amqp = IO(AMQP)
@@ -56,15 +58,21 @@ class Subscriber(receiver: ActorRef) extends Actor {
       connection ! DeclareQueue(name = "test-queue", autoDelete = true)
 
     case QueueDeclared(_) =>
-      connection ! BindQueue(queue = "test-queue", exchange = "test-exchange", routingKey = "#")
+      connection ! BindQueue(queue = "test-queue", exchange = "test-exchange", routingKey = "pubsub")
 
     case QueueBound(_,_,_) =>
       connection ! Subscribe("test-queue")
       receiver ! "ready"
 
     case Delivery(_,envelope,_,body) =>
-      sender ! Ack(envelope.getDeliveryTag)
-      receiver ! new String(body, Charset.forName("utf-8"))
+      val queue = sender
+      val messageBody = new String(body, Charset.forName("utf-8"))
+      if (messageBody.startsWith(prefix)) {
+        receiver ! messageBody
+        queue ! Ack(envelope.getDeliveryTag)
+      } else {
+        queue ! Nack(envelope.getDeliveryTag)
+      }
   }
 }
 
@@ -73,14 +81,20 @@ class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout 
   "A PubSub system" should {
     "receive all published messages" in {
       val probe = TestProbe()
-      system.actorOf(Props(classOf[Subscriber], probe.ref))
+      system.actorOf(Props(classOf[Subscriber], probe.ref, "test"))
+      system.actorOf(Props(classOf[Subscriber], probe.ref, "nack"))
       val publisher = system.actorOf(Props(classOf[Publisher]))
 
+      probe.expectMsg("ready")
       probe.expectMsg("ready")
 
       publisher ! "pub"
 
-      probe.expectMsgAllOf((0 until 10).map(i => s"test$i"): _*)
+      probe.expectMsgAllOf(10.seconds, (0 until 10).map(i => {
+        s"test$i"
+      }) ++ (0 until 10).map(j => {
+        s"nack$j"
+      }): _*)
     }
   }
 

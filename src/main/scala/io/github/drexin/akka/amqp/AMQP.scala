@@ -43,6 +43,8 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class Ack(deliveryTag: Long, multiple: Boolean = false) extends Command
 
+  case class Nack(deliveryTag: Long, multiple: Boolean = false, requeue: Boolean = true) extends Command
+
   // Responses
   trait Response
 
@@ -147,6 +149,9 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
 
     case Ack(deliveryTag, multiple) =>
       channel.basicAck(deliveryTag, multiple)
+
+    case Nack(deliveryTag, multiple, requeue) =>
+      channel.basicNack(deliveryTag, multiple, requeue)
   }
 
   class ForwardingConsumer(consumer: ActorRef) extends Consumer {
