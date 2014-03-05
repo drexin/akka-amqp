@@ -39,6 +39,11 @@ class Publisher extends Actor {
     case "pub" =>
       for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = s"test$i".getBytes(Charset.forName("utf-8")))
       for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = s"nack$i".getBytes(Charset.forName("utf-8")))
+    case "work" => {
+      connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = "worker1".getBytes(Charset.forName("utf-8")))
+      Thread.sleep(10)
+      connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = "worker2".getBytes(Charset.forName("utf-8")))
+    }
   }
 }
 
@@ -76,6 +81,34 @@ class Subscriber(receiver: ActorRef, prefix: String) extends Actor {
   }
 }
 
+class Worker(receiver: ActorRef) extends Actor {
+  import context.system
+
+  val amqp = IO(AMQP)
+  var connection: ActorRef = _
+
+  override def preStart(): Unit = {
+    amqp ! Connect("amqp://guest:guest@127.0.0.1:5672")
+  }
+
+  def receive: Actor.Receive = {
+    case Connected(_, _connection) =>
+      connection = _connection
+      connection ! DeclareQueue(name = "test-queue", autoDelete = true)
+
+    case QueueDeclared(_) =>
+      connection ! BindQueue(queue = "test-queue", exchange = "test-exchange", routingKey = "pubsub")
+
+    case QueueBound(_,_,_) =>
+      connection ! Subscribe("test-queue", autoAck = false)
+      connection ! Qos(1)
+      receiver ! "ready"
+
+    case Delivery(_,envelope,_,body) =>
+      receiver ! new String(body, Charset.forName("utf-8"))
+  }
+}
+
 class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout with WordSpecLike with Matchers with BeforeAndAfterAll {
 
   "A PubSub system" should {
@@ -95,6 +128,25 @@ class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout 
       }) ++ (0 until 10).map(j => {
         s"nack$j"
       }): _*)
+    }
+
+    "workers should split the load" in {
+      val probe = TestProbe()
+      val worker1 = system.actorOf(Props(classOf[Worker], probe.ref))
+      val publisher = system.actorOf(Props(classOf[Publisher]))
+
+      probe.expectMsg("ready")
+
+      publisher ! "work"
+
+      probe.expectMsg("worker1")
+      assert(probe.lastSender.equals(worker1))
+
+      val worker2 = system.actorOf(Props(classOf[Worker], probe.ref))
+      probe.expectMsg("ready")
+
+      probe.expectMsg("worker2")
+      assert(probe.lastSender.equals(worker2))
     }
   }
 

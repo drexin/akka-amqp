@@ -45,6 +45,8 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class Nack(deliveryTag: Long, multiple: Boolean = false, requeue: Boolean = true) extends Command
 
+  case class Qos(prefetchCount: Int, prefetchSize: Int = 0, global: Boolean = false) extends Command
+
   // Responses
   trait Response
 
@@ -62,7 +64,6 @@ object AMQP extends ExtensionId[AMQPExt] with ExtensionIdProvider {
 
   case class QueueUnbound(queue: String, exchange: String, routingKey: String) extends Response
 
-  //
   case class Delivery(consumerTag: String, envelope: Envelope, properties: client.AMQP.BasicProperties, body: Array[Byte])
 }
 
@@ -152,6 +153,9 @@ class AMQPConnection(uri: String, executorOpt: Option[ExecutorService], commande
 
     case Nack(deliveryTag, multiple, requeue) =>
       channel.basicNack(deliveryTag, multiple, requeue)
+
+    case Qos(prefetchCount, prefetchSize, global) =>
+      channel.basicQos(prefetchSize, prefetchCount, global)
   }
 
   class ForwardingConsumer(consumer: ActorRef) extends Consumer {
