@@ -39,11 +39,9 @@ class Publisher extends Actor {
     case "pub" =>
       for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = s"test$i".getBytes(Charset.forName("utf-8")))
       for (i <- 0 until 10) connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = s"nack$i".getBytes(Charset.forName("utf-8")))
-    case "work" => {
+    case "work" =>
       connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = "worker1".getBytes(Charset.forName("utf-8")))
-      Thread.sleep(10)
       connection ! Publish(exchange = "test-exchange", routingKey = "pubsub", body = "worker2".getBytes(Charset.forName("utf-8")))
-    }
   }
 }
 
@@ -123,7 +121,7 @@ class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout 
 
       publisher ! "pub"
 
-      probe.expectMsgAllOf(10.seconds, (0 until 10).map(i => {
+      probe.expectMsgAllOf((0 until 10).map(i => {
         s"test$i"
       }) ++ (0 until 10).map(j => {
         s"nack$j"
@@ -132,21 +130,24 @@ class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout 
 
     "workers should split the load" in {
       val probe = TestProbe()
-      val worker1 = system.actorOf(Props(classOf[Worker], probe.ref))
+      system.actorOf(Props(classOf[Worker], probe.ref))
       val publisher = system.actorOf(Props(classOf[Publisher]))
+      probe.expectMsg("ready")
 
+      system.actorOf(Props(classOf[Worker], probe.ref))
       probe.expectMsg("ready")
 
       publisher ! "work"
 
-      probe.expectMsg("worker1")
-      assert(probe.lastSender.equals(worker1))
+      val msg1 = probe.receiveOne(1.seconds)
+      val sender1 = probe.lastSender
 
-      val worker2 = system.actorOf(Props(classOf[Worker], probe.ref))
-      probe.expectMsg("ready")
+      val msg2 = probe.receiveOne(1.seconds)
+      val sender2 = probe.lastSender
 
-      probe.expectMsg("worker2")
-      assert(probe.lastSender.equals(worker2))
+      // make sure messages and senders diff.
+      assert(!msg1.equals(msg2))
+      assert(!sender1.equals(sender2))
     }
   }
 
