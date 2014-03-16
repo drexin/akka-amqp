@@ -19,13 +19,13 @@ class PerfSpec extends TestKit(ActorSystem("TestSystem", ConfigFactory.parseStri
     "should have a reasonable throughput" in {
       Await.ready(connection ? DeclareExchange(name = "test-exchange", tpe = "topic", autoDelete = true), 5.seconds)
 
-      Await.ready(connection ? DeclareQueue(name = "test-queue", autoDelete = true), 5.seconds)
+      Await.ready(connection ? DeclareQueue(name = "test-perf-queue", autoDelete = true), 5.seconds)
 
-      Await.ready(connection ? BindQueue("test-queue", "test-exchange", "#"), 5.seconds)
+      Await.ready(connection ? BindQueue("test-perf-queue", "test-exchange", "test"), 5.seconds)
 
       val probe = TestProbe()
 
-      connection.tell(Subscribe(queue = "test-queue", autoAck = true), probe.ref)
+      connection.tell(Subscribe(queue = "test-perf-queue", autoAck = true), probe.ref)
 
       import system.dispatcher
 
