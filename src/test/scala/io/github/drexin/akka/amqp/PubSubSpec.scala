@@ -121,11 +121,11 @@ class PubSubSpec extends TestKit(ActorSystem("TestSystem")) with DefaultTimeout 
 
       publisher ! "pub"
 
-      probe.expectMsgAllOf((0 until 10).map(i => {
+      probe.expectMsgAllOf((0 until 10).map { i =>
         s"test$i"
-      }) ++ (0 until 10).map(j => {
+      } ++ (0 until 10).map { j =>
         s"nack$j"
-      }): _*)
+      }: _*)
     }
 
     "workers should split the load" in {
